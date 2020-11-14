@@ -40,27 +40,53 @@ void printGameText(int max_column, const char *msg)
 	refresh();
 }
 
-void printStep(int step, int max_column)
+void printStep(int max_y, int max_x, int &step, int &spirit_y, int &spirit_x)
 {
+	int x, y;
 	const char *msg_step;
-	if(step == MOVE_UP) msg_step = "up";
-	else if(step == MOVE_RIGHT) msg_step = "right";
-	else if(step == MOVE_DOWN) msg_step = "down";
-	else msg_step = "left";
+	do {
+		x = 0; y = 0;
+		step = rand() % 4;
+		switch(step) {
 
-	printGameText(max_column, msg_step);
+		case MOVE_UP: {
+			msg_step = "up";
+			x = 0; y = -1;
+			break;
+		}
+		case MOVE_RIGHT: {
+			msg_step = "right";
+			x = 1; y = 0;
+			break;
+		}
+		case MOVE_DOWN: {
+		msg_step = "down";
+			x = 0; y = 1;
+			break;
+		}
+		case MOVE_LEFT: {
+			msg_step = "left";
+			x = -1; y = 0;
+			break;
+		}
+
+		}
+
+	}
+	while(spirit_x+x >= max_x || spirit_y+y >= max_y || spirit_y+y <= row_gametext+1);
+	spirit_x += x; spirit_y += y;
+
+	printGameText(max_x, msg_step);
 }
 
-void showSteps(int max_y, int max_x, int *arr, int amount)
+void showSteps(int max_y, int max_x, int *arr, int amount, int &spirit_y, int &spirit_x)
 {
 	for(int i = 0; i < amount; i++) {
-		printGameText(max_y, "          ");
-		struct timespec tw = {0, 100000000};
+		printGameText(max_x, "     ");
+		struct timespec tw = {0, 100000000}; // 0.1s
 		nanosleep(&tw, NULL);
 
-		arr[i] = rand() % 4;
-
-		printStep(arr[i], max_x);
+		printStep(max_y, max_x, arr[i], spirit_y, spirit_x);
 		sleep(1);
 	}
 	printRowChar(row_gametext, max_x, ' ');
@@ -69,10 +95,9 @@ void showSteps(int max_y, int max_x, int *arr, int amount)
 
 void HandlingUserMove(Character &Player)
 {
-	int key = getch();
 	int y = Player.getY();
 	int x = Player.getX();
-	switch(key) {
+	switch(getch()) {
 		case 'w':
 		case 'W': { // up
 			Player.goYX(y-1, x);
@@ -94,12 +119,13 @@ void HandlingUserMove(Character &Player)
 			break;
 		}
 
-		default: break;
-
 		/*case KEY_RESIZE: {
 			endwin();
+			printf("Screen resolution cannot be changed\n");
 			return 1;
 		}*/
+
+		default: break;
 	}
 }
 
@@ -165,6 +191,33 @@ void changePeace(int step, int &peace_y, int &peace_x)
 	else if(step == MOVE_LEFT) peace_x--;
 }
 
+bool playGame(const int rows, const int columns, int &peace_y,
+	int &peace_x, int &spirit_y, int &spirit_x)
+{
+	// ask user if he is ready
+	printGameText(columns, ready_message); // have refresh() in func
+
+	timeout(-1);
+	int key;
+	while((key = getch()) != key_enter) {
+		#ifdef DEBUG
+			mvprintw(rows-1, 0, "       ");
+			mvprintw(rows-1, 0, "%d", key);
+			refresh();
+		#endif
+
+		if(key == key_escape) return 0;
+	}
+
+	// peace cords = center
+	peace_y = rows/2;
+	peace_x = (columns-1)/2;
+	spirit_y = rows/2;
+	spirit_x = (columns-1)/2;
+
+	return 1;
+}
+
 int main(int argc, char **argv)
 {
 	// initialize screen
@@ -176,72 +229,74 @@ int main(int argc, char **argv)
 
 	int rows, columns;
 	getmaxyx(stdscr, rows, columns);
-	// check normal screen: (#todo)
 
-	// create user, peace coords:
-	int peace_y = rows/2; // no boom in these coordinates
-	int peace_x = (columns-1)/2;
-	Character Player(peace_y, peace_x, '#'); // go in center
-
-	printRowChar(row_gametext+1, columns, ACS_HLINE);
-	printGameText(columns, ready_message); // have refresh() in func
-
-	// ask user if he is ready
-	int key;
-	while((key = getch()) != key_enter) {
-		#ifdef DEBUG
-			mvprintw(rows-1, 0, "       ");
-			mvprintw(rows-1, 0, "%d", key);
-			refresh();
-		#endif
-
-		if(key == key_escape) {
-			endwin();
-			return 1;
-		}
+	// check screen size
+	if(rows < 8 || columns < 40) {
+		endwin();
+		printf("You have so small screen resolution. Minimum: 8x40\n");
+		return 1;
 	}
 
-	int number_steps = 2;
-	int steps[16];
-	int *ptr_steps = &(steps[0]);
+	printRowChar(row_gametext+1, columns, ACS_HLINE);
+
+	// create peace coords and hero:
+	int peace_y, peace_x; // no boom in these coordinates
+	int spirit_y, spirit_x; // spirit for check move
+
+	char skin = '#';
+	if(argc > 1) skin = argv[1][0];
+
+	Character Player(0, 0, skin); 
+
 	srand( time(NULL) );
-
-	timeout(delay_duration);
-	int now_step;
-	bool died = false;
-	while(true)
+	int time_to_move = 1100;
+	while(playGame(rows, columns, peace_y, peace_x, spirit_y, spirit_x))
 	{
-		for(int j=0; j < 16; j++)
-			steps[j] = -1;
+		Player.goYX(peace_y, peace_x);
+		timeout(delay_duration);
 
-		showSteps(rows, columns, ptr_steps, number_steps);
+		int number_steps = 2, now_step;
+		int steps[19];
+		// int *ptr_steps = &(steps[0]);
+		bool died = false;
 
-		uint32_t boom_timer = getTick();
-		now_step = 0;
+		while(true)
+		{
+			now_step = 0;
+			for(int j=0; j < 16; j++)
+				steps[j] = -1;
+			showSteps(rows, columns, &(steps[0]), number_steps, spirit_y, spirit_x);
+			changePeace(steps[now_step], peace_y, peace_x);
 
-		changePeace(steps[now_step], peace_y, peace_x);
-		clearStdscrBuff();
-		while(now_step < number_steps) {
-			HandlingUserMove(Player);
+			uint32_t boom_timer = getTick();
+			clearStdscrBuff();
+			while(now_step < number_steps) {
+				HandlingUserMove(Player);
 
-			if(getTick() > boom_timer+2500) {
-				died = boom(peace_y, peace_x, rows, columns, Player);
-				now_step++;
+				if(getTick() > boom_timer + time_to_move) {
+					died = boom(peace_y, peace_x, rows, columns, Player);
+					now_step++;
 
-				struct timespec tw = {0, 100000000};
-			   	nanosleep(&tw, NULL);
+					struct timespec tw = {0, 100000000}; // 0.1s
+				   	nanosleep(&tw, NULL);
 
-			   	boom_timer = getTick();
-			   	clear_boom(peace_y, peace_x, rows, columns, Player, died);
-			   	changePeace(steps[now_step], peace_y, peace_x);
-			   	if(died) break;
+				   	boom_timer = getTick();
+				   	clear_boom(peace_y, peace_x, rows, columns, Player, died);
+				   	changePeace(steps[now_step], peace_y, peace_x);
+				   	if(died) break;
+				}
 			}
-		}
-		if(died) break;
+			if(died) break;
 
-		number_steps++;
-		sleep(1);
-		if(number_steps == 5) break;
+			number_steps++;
+			if(number_steps == 19) {
+				printGameText(columns, "WOW! You perfect!");
+				sleep(2);
+				break;
+			}
+			time_to_move -= 50;
+			sleep(1);
+		}
 	}
 
 	endwin();

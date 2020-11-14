@@ -1,3 +1,4 @@
 architecture/
 src/*.o
+src/test.cpp
 runner

@@ -5,8 +5,7 @@ class Character {
 	int y, x;
 	char skin;
 public:
-	Character(int g_y, int g_x, char g_skin) : skin(g_skin)
-		{ goYX(g_y, g_x); }
+	Character(int g_y, int g_x, char g_skin) : y(g_y), x(g_x), skin(g_skin) { }
 	char getSkin() const { return skin; }
 	int getY() const { return y; }
 	int getX() const { return x; }
